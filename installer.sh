@@ -5,13 +5,13 @@
 ################################################################################
 
 # Configure the installer here
-KEYLIME_GIT=https://github.com/keylime/keylime.git
+KEYLIME_GIT=https://github.com/stefanberger/keylime.git
 TPM4720_GIT=https://github.com/keylime/tpm4720-keylime.git
 GOLANG_SRC=https://dl.google.com/go
 TPM2TSS_GIT=https://github.com/tpm2-software/tpm2-tss.git
 TPM2TOOLS_GIT=https://github.com/tpm2-software/tpm2-tools.git
 TPM2SIM_SRC=http://sourceforge.net/projects/ibmswtpm2/files/ibmtpm1119.tar.gz/download
-KEYLIME_VER="master"
+KEYLIME_VER="ima_sig_on_z"
 TPM4720_VER="master"
 GOLANG_VER="1.13.1"
 TPM2TSS_VER="2.0.x"
@@ -82,7 +82,7 @@ case "$ID" in
                 NEED_BUILD_TOOLS=1
                 CENTOS7_TSS_FLAGS="--enable-esapi=no --disable-doxygen-doc"
             ;;
-            8)
+            8|8.1|8.2|8.3)
                 echo "${ID} ${VERSION_ID} selected."
                 PACKAGE_MGR=$(command -v dnf)
                 NEED_EPEL=1
