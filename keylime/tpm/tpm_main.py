@@ -973,7 +973,11 @@ class tpm(tpm_abstract.AbstractTPM):
             command = ["tpm2_checkquote", "-c", pubaik, "-m", quoteFile, "-s", sigFile, "-p", pcrFile, "-G", hash_alg, "-q", nonce]
         else:
             command = ["tpm2_checkquote", "-u", pubaik, "-m", quoteFile, "-s", sigFile, "-f", pcrFile, "-g", hash_alg, "-q", nonce]
+        # logger.info(command.format(**cmdargs))
+        # time.sleep(10)
+
         retDict = self.__run(command, lock=False)
+        # logger.info("Result from tpm2_checkquote: %s" % str(retDict))
         return retDict
 
     def check_quote(self, agent_id, nonce, data, quote, aikTpmFromRegistrar, tpm_policy={}, ima_measurement_list=None, allowlist={}, hash_alg=None, ima_keyring=None, mb_measurement_list=None, mb_intended_state={}):
