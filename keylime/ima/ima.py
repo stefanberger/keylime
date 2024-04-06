@@ -13,7 +13,7 @@ from keylime.common import algorithms, validators
 from keylime.common.algorithms import Hash
 from keylime.dsse import dsse
 from keylime.failure import Component, Failure
-from keylime.ima import ast, file_signatures, ima_dm
+from keylime.ima import ast, file_signatures, ima_dm, policy
 from keylime.ima.file_signatures import ImaKeyrings
 from keylime.ima.types import RuntimePolicyType
 
@@ -229,6 +229,8 @@ def _process_measurement_list(
     running_hash = agentAttestState.get_pcr_state(config.IMA_PCR, hash_alg)
     assert running_hash
 
+    ima_policy = policy.Policy.from_runtime_policy(runtime_policy)
+
     found_pcr = pcrval is None
     errors: Dict[Type[ast.Mode], int] = {}
     pcrval_bytes = b""
@@ -288,6 +290,15 @@ def _process_measurement_list(
         }
     )
 
+    ima_evaluator = policy.Evaluator(
+        {
+            policy.AcceptImaSig: functools.partial(policy.accept_ima_sig_eval, ima_keyrings, dm_validator),
+            policy.AcceptMap: functools.partial(policy.acceptreject_map_eval),
+            policy.RegexList: functools.partial(policy.regexlist_eval),
+            policy.RejectMap: functools.partial(policy.acceptreject_map_eval),
+        }
+    )
+
     pcr_match_line = -1
     log_length = 0
 
@@ -322,6 +333,12 @@ def _process_measurement_list(
             if validation_failure:
                 failure.merge(validation_failure)
                 errors[type(entry.mode)] = errors.get(type(entry.mode), 0) + 1
+            else:
+                digest, path, signature, data = entry.get_params()
+                rule_failure = ima_policy.eval(ima_evaluator, digest, path, signature, data, ima_keyrings)
+                if rule_failure:
+                    failure.merge(rule_failure)
+                    errors[type(entry.mode)] = errors.get(type(entry.mode), 0) + 1
 
             if not found_pcr:
                 # End of list should equal pcr value
