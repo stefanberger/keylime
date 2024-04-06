@@ -35,3 +35,6 @@ class PolicyTest(unittest.TestCase):
         self.assertIsInstance(exclude_list, CompiledRegexList)
         assert isinstance(exclude_list, CompiledRegexList)  # for pyright
         self.assertEqual(len(exclude_list), 0)
+
+        self.assertIsInstance(policy.get_map("allow-list"), type({}))
+        self.assertIsInstance(policy.get_map("reject-list"), type({}))

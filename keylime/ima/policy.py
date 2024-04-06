@@ -389,8 +389,10 @@ class Policy(ABCPolicy):
     DEFAULT_POLICY_STR: str = (
         "LEARN-KEYS: ignore-keyrings=ignored_keyrings allowed-hashes=keyrings\n"
         "REGEX-LIST: exclude-list\n"
+        "REJECT-MAP: reject-list\n"
         "ACCEPT-IMASIG\n"
         "ACCEPT-MAP: allow-list\n"
+        "REGEX-LIST: filter-list"
     )
 
     rules: List[ABCRule]
@@ -476,6 +478,10 @@ class Policy(ABCPolicy):
                 if self.runtime_policy:
                     regexlist = self.runtime_policy.get("excludes", [])
                 self.regex_list[listname] = CompiledRegexList.from_excludelist(regexlist)
+            elif listname == "filter-list":
+                if self.runtime_policy:
+                    regexlist = self.runtime_policy.get("filters", [])
+                self.regex_list[listname] = CompiledRegexList.from_list(regexlist)
             else:
                 raise PolicyException(f"A regex list with name {listname} is not available")
         return self.regex_list.get(listname)
@@ -485,6 +491,10 @@ class Policy(ABCPolicy):
             if not self.runtime_policy:
                 return {}
             return self.runtime_policy.get("digests", {})
+        if mapname == "reject-list":
+            if not self.runtime_policy:
+                return {}
+            return self.runtime_policy.get("rejects", {})
         raise PolicyException(f"A map with name {mapname} is not available")
 
     def get_runtime_policy(self) -> Optional[RuntimePolicyType]:
