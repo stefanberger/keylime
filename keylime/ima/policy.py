@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Pattern, Tuple, Type
+from typing import Callable, Dict, Iterable, List, Optional, Pattern, Tuple, Type, cast
 
 from keylime import keylime_logging
 from keylime.common import validators
@@ -22,6 +22,28 @@ class EvalResult(Enum):
 
 class PolicyException(Exception):
     pass
+
+
+def kvps_to_dict(
+    kvps: str, allowed_keys: List[str], required_keys: Optional[List[str]], rulename: str
+) -> Dict[str, str]:
+    """Convert key-value pairs to a Dict"""
+    res: List[map] = []  # type: ignore
+    for kvp in kvps.split(" "):
+        kvp = kvp.strip()
+        if "=" in kvp:
+            key, _ = kvp.split("=", 1)
+            if key not in allowed_keys:
+                raise PolicyException(f"Unsupported parameter {key} for {rulename}")
+            if required_keys is not None and key in required_keys:
+                required_keys.remove(key)
+            res.append(map(str.strip, kvp.split("=", 1)))
+        else:
+            if kvp:
+                raise PolicyException(f"{kvp} is not a valid key=value pair")
+    if required_keys:
+        raise PolicyException(f"Missing required attribute for {rulename}: {', '.join(required_keys)}")
+    return dict(cast(Iterable[tuple[str, str]], res))
 
 
 class CompiledRegexList:
@@ -102,6 +124,10 @@ class ABCPolicy(ABC):
 
     @abstractmethod
     def get_map(self, mapname: str) -> Optional[Dict[str, List[str]]]:
+        pass
+
+    @abstractmethod
+    def get_runtime_policy(self) -> Optional[RuntimePolicyType]:
         pass
 
 
@@ -272,14 +298,96 @@ def accept_ima_sig_eval(
     return rule.eval(ima_keyrings, digest, path, signature), None
 
 
+class LearnKeys(ABCRule):
+    """LearnKeys represents a 'LEARN-KEYS [ignore-list=<ignore-list>] [allowed-hashes=<hashes-list>]' rule"""
+
+    parameters: Dict[str, str]
+    ignored_keyrings: List[str]
+    allowed_hashes: Dict[str, List[str]]  # a key's hash must be in this dict (key = keyring name)
+
+    def __init__(self, parameters: Dict[str, str]) -> None:
+        self.parameters = parameters
+        self.ignored_keyrings = []
+        self.allowed_hashes = {}
+
+    @staticmethod
+    def from_string(rule: str) -> ABCRule:
+        parameters = kvps_to_dict(rule, ["ignore-keyrings", "allowed-hashes"], None, "LEARN-KEYS")
+        return LearnKeys(parameters)
+
+    def setup(self, policy: ABCPolicy) -> None:
+        runtime_policy = policy.get_runtime_policy()
+        if runtime_policy:
+            ignore_keyrings = self.parameters.get("ignore-keyrings")
+            if ignore_keyrings:
+                ik = runtime_policy.get("ima", {}).get(ignore_keyrings, [])
+                if not isinstance(ik, list):
+                    raise PolicyException("Referenced ignore-keyrings {ignore_list} is not a list")
+                self.ignored_keyrings = ik
+
+            allowed_hashes = self.parameters.get("allowed-hashes")
+            if allowed_hashes:
+                ah = runtime_policy.get(allowed_hashes, [])
+                if not isinstance(ah, dict):
+                    raise PolicyException("Referenced allowed-hashes {allowed_hashes} is not a dictionary")
+                self.allowed_hashes = ah
+
+
+def learn_keys_eval(
+    ima_keyrings: Optional[file_signatures.ImaKeyrings],
+    digest: ast.Digest,
+    path: ast.Name,
+    _signature: Optional[ast.Signature],
+    data: Optional[ast.Buffer],
+    rule: LearnKeys,
+) -> Tuple[EvalResult, Failure]:
+    failure = Failure(Component.IMA)
+
+    if not data:
+        return EvalResult.SKIP, failure
+
+    # Is data.data a key?
+    try:
+        pubkey, keyidv2 = file_signatures.get_pubkey(data.data)
+    except ValueError as ve:
+        failure.add_event("invalid_key", f"key from {path.name} does not have a supported key: {ve}", True)
+        return EvalResult.SKIP, failure
+
+    if pubkey:
+        if "*" not in rule.ignored_keyrings and path.name not in rule.ignored_keyrings:
+            accept_list = rule.allowed_hashes.get(path.name, None)
+            if not accept_list:
+                allowed_hashes = rule.parameters.get("allowed-hashes", "<allowed-hashes not given in rule>")
+                failure.add_event("not_in_allowlist", f"Keyring not found in {allowed_hashes}: {path.name}", True)
+                return EvalResult.REJECT, failure
+            hex_hash = digest.hash.hex()
+            if hex_hash not in accept_list:
+                failure.add_event(
+                    "runtime_policy_hash",
+                    {
+                        "message": "Hash for key not found in runtime policy",
+                        "got": hex_hash,
+                        "expected": accept_list,
+                    },
+                    True,
+                )
+                return EvalResult.REJECT, failure
+            if ima_keyrings is not None:
+                ima_keyrings.add_pubkey_to_keyring(pubkey, path.name, keyidv2=keyidv2)
+
+    return EvalResult.SKIP, failure
+
+
 class Policy(ABCPolicy):
     MAPPINGS: Dict[str, Type[ABCRule]] = {
         "ACCEPT-IMASIG": AcceptImaSig,
         "ACCEPT-MAP": AcceptMap,
+        "LEARN-KEYS": LearnKeys,
         "REGEX-LIST": RegexList,
         "REJECT-MAP": RejectMap,
     }
     DEFAULT_POLICY_STR: str = (
+        "LEARN-KEYS: ignore-keyrings=ignored_keyrings allowed-hashes=keyrings\n"
         "REGEX-LIST: exclude-list\n"
         "ACCEPT-IMASIG\n"
         "ACCEPT-MAP: allow-list\n"
@@ -378,3 +486,6 @@ class Policy(ABCPolicy):
                 return {}
             return self.runtime_policy.get("digests", {})
         raise PolicyException(f"A map with name {mapname} is not available")
+
+    def get_runtime_policy(self) -> Optional[RuntimePolicyType]:
+        return self.runtime_policy

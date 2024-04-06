@@ -296,6 +296,7 @@ def _process_measurement_list(
             policy.AcceptMap: functools.partial(policy.acceptreject_map_eval),
             policy.RegexList: functools.partial(policy.regexlist_eval),
             policy.RejectMap: functools.partial(policy.acceptreject_map_eval),
+            policy.LearnKeys: functools.partial(policy.learn_keys_eval, ima_keyrings),
         }
     )
 

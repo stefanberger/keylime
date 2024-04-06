@@ -421,7 +421,7 @@ class Entry:
             failure.add_event("no_validator", "No validator specified", True)
             return failure
 
-        #failure.merge(self.mode.is_data_valid(self._validator))
+        # failure.merge(self.mode.is_data_valid(self._validator))
         return failure
 
     def get_params(self) -> Tuple[Digest, Name, Optional[Signature], Optional[Buffer]]:
